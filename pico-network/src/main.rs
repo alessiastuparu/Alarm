@@ -6,6 +6,8 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_time::{Duration, Timer};
 use panic_probe as _;
+const WIFI_FIRMWARE: &[u8] = include_bytes!("../firmware/43439A0.bin");
+const WIFI_CLM: &[u8] = include_bytes!("../firmware/43439A0_clm.bin");
 
 const INDEX_HTML: &str = r#"
 <!DOCTYPE html>
@@ -34,11 +36,12 @@ const INDEX_HTML: &str = r#"
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let _p = embassy_rp::init(Default::default());
-    info!("Pico 2 W Web Server initialized");
+    info!("Pico W Web Server initialized");
+    info!("Wi-Fi Firmware loaded into memory: {} bytes", WIFI_FIRMWARE.len());
 
     loop {
-        info!("Hosting ");
-        info!("(Waiting for a phone connection)");
+        info!("Hosting webpage at ");
+        info!("(Waiting for a phone to connect)");
         
         Timer::after(Duration::from_secs(5)).await;
     }
