@@ -6,16 +6,28 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_time::{Duration, Timer};
 use panic_probe as _;
+
+use cyw43_pio::PioSpi;
+use embassy_net::{Config, Stack, StackResources};
+use embassy_rp::bind_interrupts;
+use embassy_rp::gpio::{Level, Output};
+use embassy_rp::peripherals::{DMA_CH0, PIO0};
+use embassy_rp::pio::{InterruptHandler, Pio};
+use static_cell::StaticCell;
+
+const WIFI_NETWORK: &str = "Targu Jiu";
+const WIFI_PASSWORD: &str = "Gorj13579!";
 const WIFI_FIRMWARE: &[u8] = include_bytes!("../firmware/43439A0.bin");
 const WIFI_CLM: &[u8] = include_bytes!("../firmware/43439A0_clm.bin");
 
+#[allow(dead_code)]
 const INDEX_HTML: &str = r#"
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Alarm</title>
+    <title>Sunrise Alarm Control</title>
     <style>
         body { font-family: sans-serif; text-align: center; margin-top: 50px; background-color: #f4f4f9; }
         h1 { color: #333; }
@@ -33,16 +45,72 @@ const INDEX_HTML: &str = r#"
 </html>
 "#;
 
+bind_interrupts!(struct Irqs {
+    PIO0_IRQ_0 => InterruptHandler<PIO0>;
+});
+
+#[embassy_executor::task]
+async fn wifi_task(
+    runner: cyw43::Runner<'static, Output<'static>, PioSpi<'static, PIO0, 0, DMA_CH0>>
+) -> ! {
+    runner.run().await
+}
+
+#[embassy_executor::task]
+async fn net_task(stack: &'static Stack<cyw43::NetDriver<'static>>) -> ! {
+    stack.run().await
+}
 #[embassy_executor::main]
-async fn main(_spawner: Spawner) {
-    let _p = embassy_rp::init(Default::default());
+async fn main(spawner: Spawner) {
+    let p = embassy_rp::init(Default::default());
     info!("Pico W Web Server initialized");
-    info!("Wi-Fi Firmware loaded into memory: {} bytes", WIFI_FIRMWARE.len());
+
+    let pwr = Output::new(p.PIN_23, Level::Low);
+    let cs = Output::new(p.PIN_25, Level::High);
+    let mut pio = Pio::new(p.PIO0, Irqs);
+    let spi = PioSpi::new(&mut pio.common, pio.sm0, pio.irq0, cs, p.PIN_24, p.PIN_29, p.DMA_CH0);
+    
+    static STATE: StaticCell<cyw43::State> = StaticCell::new();
+    let state = STATE.init(cyw43::State::new());
+    
+    let (net_device, mut control, wifi_runner) = cyw43::new(state, pwr, spi, WIFI_FIRMWARE).await;
+    spawner.spawn(wifi_task(wifi_runner)).unwrap();
+
+    info!("Starting Wi-Fi chip");
+    control.init(WIFI_CLM).await;
+    control.set_power_management(cyw43::PowerManagementMode::PowerSave).await;
+
+    let config = Config::dhcpv4(Default::default());
+    
+    static RESOURCES: StaticCell<StackResources<2>> = StaticCell::new();
+    let resources = RESOURCES.init(StackResources::<2>::new());
+    
+    static STACK: StaticCell<Stack<cyw43::NetDriver<'static>>> = StaticCell::new();
+    let stack = STACK.init(Stack::new(net_device, config, resources, 1234));
+    
+    spawner.spawn(net_task(stack)).unwrap();
+
+    info!("Connecting to Wi-Fi network: {}...", WIFI_NETWORK);
+    loop {
+        match control.join_wpa2(WIFI_NETWORK, WIFI_PASSWORD).await {
+            Ok(_) => break,
+            Err(err) => {
+                info!("Join failed with status={}. Retrying in 1 second...", err.status);
+                Timer::after(Duration::from_secs(1)).await;
+            }
+        }
+    }
+    info!("Authentication with Wi-Fi successful");
+
+    info!("Waiting for DHCP to assign an IP address");
+    while !stack.is_config_up() {
+        Timer::after(Duration::from_millis(100)).await;
+    }
+    
+    let ip = stack.config_v4().unwrap().address.address();
+    info!("Network is working - Pico W IP Address: {}", ip);
 
     loop {
-        info!("Hosting webpage at ");
-        info!("(Waiting for a phone to connect)");
-        
         Timer::after(Duration::from_secs(5)).await;
     }
 }
