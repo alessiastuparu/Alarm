@@ -1,0 +1,9 @@
+{
+    "rust-analyzer.cargo.target": "thumbv8m.main-none-eabihf",
+    "rust-analyzer.check.allTargets": false,
+    "rust-analyzer.linkedProjects": [
+        "stm32-core/Cargo.toml",
+        "pico-network/Cargo.toml",
+        "shared-protocol/Cargo.toml"
+    ]
+}

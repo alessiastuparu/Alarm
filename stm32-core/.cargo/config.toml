@@ -1,0 +1,9 @@
+[target.thumbv8m.main-none-eabihf]
+# This tells Cargo to use probe-rs to flash the code directly to the board
+runner = "probe-rs run --chip STM32U545RETx"
+
+[build]
+target = "thumbv8m.main-none-eabihf"
+
+[env]
+DEFMT_LOG = "trace"
