@@ -15,6 +15,8 @@ use embassy_rp::peripherals::{DMA_CH0, PIO0};
 use embassy_rp::pio::{InterruptHandler, Pio};
 use static_cell::StaticCell;
 
+use embedded_io_async::Write;
+
 const WIFI_NETWORK: &str = "Targu Jiu";
 const WIFI_PASSWORD: &str = "Gorj13579!";
 const WIFI_FIRMWARE: &[u8] = include_bytes!("../firmware/43439A0.bin");
@@ -60,6 +62,7 @@ async fn wifi_task(
 async fn net_task(stack: &'static Stack<cyw43::NetDriver<'static>>) -> ! {
     stack.run().await
 }
+
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
@@ -69,7 +72,7 @@ async fn main(spawner: Spawner) {
     let cs = Output::new(p.PIN_25, Level::High);
     let mut pio = Pio::new(p.PIO0, Irqs);
     let spi = PioSpi::new(&mut pio.common, pio.sm0, pio.irq0, cs, p.PIN_24, p.PIN_29, p.DMA_CH0);
-    
+
     static STATE: StaticCell<cyw43::State> = StaticCell::new();
     let state = STATE.init(cyw43::State::new());
     
@@ -81,10 +84,8 @@ async fn main(spawner: Spawner) {
     control.set_power_management(cyw43::PowerManagementMode::PowerSave).await;
 
     let config = Config::dhcpv4(Default::default());
-    
     static RESOURCES: StaticCell<StackResources<2>> = StaticCell::new();
     let resources = RESOURCES.init(StackResources::<2>::new());
-    
     static STACK: StaticCell<Stack<cyw43::NetDriver<'static>>> = StaticCell::new();
     let stack = STACK.init(Stack::new(net_device, config, resources, 1234));
     
@@ -110,7 +111,36 @@ async fn main(spawner: Spawner) {
     let ip = stack.config_v4().unwrap().address.address();
     info!("Network is working - Pico W IP Address: {}", ip);
 
+    let mut rx_buffer = [0; 1024];
+    let mut tx_buffer = [0; 4096];
+
     loop {
-        Timer::after(Duration::from_secs(5)).await;
+        let mut socket = embassy_net::tcp::TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
+        socket.set_timeout(Some(Duration::from_secs(10)));
+
+        info!("Listening for web browsers on port 80");
+        
+        if let Err(e) = socket.accept(80).await {
+            warn!("Connection error: {:?}", e);
+            continue;
+        }
+
+        info!("Browser connected from {:?}", socket.remote_endpoint());
+
+        let mut buf = [0; 1024];
+        if let Ok(n) = socket.read(&mut buf).await {
+            if n > 0 {
+                info!("Sending webpage");
+                let headers = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\n\r\n";
+                
+                let _ = socket.write_all(headers.as_bytes()).await;
+                let _ = socket.write_all(INDEX_HTML.as_bytes()).await;
+                let _ = socket.flush().await;
+            }
+        }
+
+        socket.close();
+        info!("Connection closed. Ready for next visitor.");
+        Timer::after(Duration::from_millis(100)).await;
     }
 }

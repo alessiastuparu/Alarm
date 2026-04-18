@@ -15,6 +15,7 @@ cyw43 = { version = "0.2.0", features = ["defmt", "firmware-logs"] }
 cyw43-pio = { version = "0.2.0", features = ["defmt"] }
 static_cell = "2.1.0"
 portable-atomic = { version = "1.5", features = ["critical-section"] }
+embedded-io-async = "0.6.1"
 
 cortex-m = "0.7.7"
 cortex-m-rt = "0.7.3"
