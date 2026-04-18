@@ -10,7 +10,7 @@ shared-protocol = { path = "../shared-protocol" }
 # Embassy Framework
 embassy-stm32 = { version = "0.1.0", features = ["defmt", "stm32u545re", "time-driver-any", "exti", "memory-x", "unstable-pac"] }
 embassy-executor = { version = "0.6.0", features = ["task-arena-size-32768", "arch-cortex-m", "executor-thread", "defmt"] }
-embassy-time = { version = "0.3.2", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
+embassy-time = { version = "0.3.2", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-1_000_000"] }
 
 # Hardware Drivers
 st7735-lcd = "0.9.0"         # For the TFT Display

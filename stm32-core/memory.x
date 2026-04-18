@@ -1,6 +1,5 @@
 MEMORY
 {
-  /* The STM32U545RE has 512KB of Flash and ~256KB of main SRAM */
   FLASH : ORIGIN = 0x08000000, LENGTH = 512K
   RAM   : ORIGIN = 0x20000000, LENGTH = 256K
 }

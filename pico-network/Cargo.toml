@@ -4,21 +4,13 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-# The Shared Library
 shared-protocol = { path = "../shared-protocol" }
 
-# Embassy Framework for Raspberry Pi
-embassy-rp = { version = "0.2.0", features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl", "rp2040"] }
+embassy-rp = { version = "0.2.0", features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl"] }
 embassy-executor = { version = "0.6.0", features = ["task-arena-size-32768", "arch-cortex-m", "executor-thread", "defmt"] }
 embassy-time = { version = "0.3.2", features = ["defmt", "defmt-timestamp-uptime"] }
-embassy-net = { version = "0.4.0", features = ["defmt", "tcp", "udp", "dhcpv4", "medium-ethernet"] }
 
-# Wi-Fi Chip Driver
-cyw43 = { version = "0.2.0", features = ["defmt", "firmware-logs"] }
-cyw43-pio = { version = "0.2.0", features = ["defmt"] }
-
-# Core Embedded Rust
-cortex-m = { version = "0.7.6", features = ["inline-asm"] }
+cortex-m = "0.7.7"
 cortex-m-rt = "0.7.3"
 defmt = "0.3.5"
 defmt-rtt = "0.4.0"
