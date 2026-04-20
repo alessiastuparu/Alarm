@@ -31,18 +31,59 @@ const INDEX_HTML: &str = r#"
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sunrise Alarm Control</title>
     <style>
-        body { font-family: sans-serif; text-align: center; margin-top: 50px; background-color: #f4f4f9; }
-        h1 { color: #333; }
-        .card { background: white; padding: 20px; border-radius: 10px; display: inline-block; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
-        button { padding: 15px 30px; font-size: 18px; border-radius: 5px; border: none; background: #ff9800; color: white; cursor: pointer; }
+        body { font-family: sans-serif; text-align: center; margin-top: 50px; background-color: #f4f4f9; color: #333; }
+        .card { background: white; padding: 30px; border-radius: 10px; display: inline-block; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+        button { padding: 10px 20px; font-size: 16px; margin: 10px; border-radius: 5px; border: none; cursor: pointer; color: white; transition: 0.2s; }
+        button:hover { opacity: 0.8; }
+        .btn-set { background: #4CAF50; }
+        .btn-snooze { background: #ff9800; }
+        .btn-disable { background: #f44336; }
+        .btn-sync { background: #2196F3; }
+        input[type="time"] { font-size: 20px; padding: 5px; margin: 10px; border: 1px solid #ccc; border-radius: 5px; }
+        hr { border: 0; border-top: 1px solid #eee; margin: 20px 0; }
     </style>
 </head>
 <body>
     <div class="card">
         <h1>Sunrise Alarm</h1>
-        <h2>Room Temp: 22.5 &deg;C</h2>
-        <button>Snooze Alarm</button>
+        <h2>Room Temp: -- &deg;C</h2>
+        
+        <hr>
+        <h3>Alarm Settings</h3>
+        <input type="time" id="alarmTime">
+        <br>
+        <button class="btn-set" onclick="setAlarm()">Set Alarm</button>
+        <button class="btn-disable" onclick="fetch('/disable')">Disable</button>
+        
+        <hr>
+        <h3>Actions</h3>
+        <button class="btn-snooze" onclick="fetch('/snooze')">Snooze</button>
+        <button class="btn-sync" onclick="syncTime()">Sync Time to Phone</button>
     </div>
+
+    <script>
+        function pad(n) { return n.toString().padStart(2, '0'); }
+        
+        function setAlarm() {
+            let t = document.getElementById('alarmTime').value;
+            if(t) {
+                let parts = t.split(':');
+                fetch(`/set_alarm?h=${parts[0]}&m=${parts[1]}`);
+                alert("Alarm set for " + t);
+            } else {
+                alert("Please select a time first!");
+            }
+        }
+        
+        function syncTime() {
+            let d = new Date();
+            let h = pad(d.getHours());
+            let m = pad(d.getMinutes());
+            let s = pad(d.getSeconds());
+            fetch(`/sync_time?h=${h}&m=${m}&s=${s}`);
+            alert(`Time synced to ${h}:${m}:${s}`);
+        }
+    </script>
 </body>
 </html>
 "#;
@@ -113,16 +154,41 @@ async fn main(spawner: Spawner) {
             if let Ok(n) = socket.read(&mut buf).await {
                 let request = core::str::from_utf8(&buf[..n]).unwrap_or("");
 
-                if request.contains("GET /snooze") {
-    info!("Snooze pressed - Sending command to STM32");
-    
-    let cmd = shared_protocol::NetworkCommand::SnoozeAlarm;
-    
-    let mut send_buf = [0u8; 32];
-    if let Ok(data) = postcard::to_slice(&cmd, &mut send_buf) {
-        let _ = uart.write(data).await;
-    }
-}
+                if request.starts_with("GET /snooze") {
+                    info!("Snooze button pressed");
+                    let cmd = shared_protocol::NetworkCommand::SnoozeAlarm;
+                    let mut send_buf = [0u8; 32];
+                    if let Ok(data) = postcard::to_slice(&cmd, &mut send_buf) { let _ = uart.write(data).await; }
+                } 
+
+                else if request.starts_with("GET /disable") {
+                    info!("Disable button pressed");
+                    let cmd = shared_protocol::NetworkCommand::DisableAlarm;
+                    let mut send_buf = [0u8; 32];
+                    if let Ok(data) = postcard::to_slice(&cmd, &mut send_buf) { let _ = uart.write(data).await; }
+                }
+
+                else if request.starts_with("GET /set_alarm") {
+                    if let (Some(h_str), Some(m_str)) = (request.get(17..19), request.get(22..24)) {
+                        if let (Ok(hour), Ok(minute)) = (h_str.parse::<u8>(), m_str.parse::<u8>()) {
+                            info!("Setting alarm to {}:{}", hour, minute);
+                            let cmd = shared_protocol::NetworkCommand::SetAlarm { hour, minute };
+                            let mut send_buf = [0u8; 32];
+                            if let Ok(data) = postcard::to_slice(&cmd, &mut send_buf) { let _ = uart.write(data).await; }
+                        }
+                    }
+                }
+
+                else if request.starts_with("GET /sync_time") {
+                    if let (Some(h), Some(m), Some(s)) = (request.get(17..19), request.get(22..24), request.get(27..29)) {
+                        if let (Ok(hour), Ok(minute), Ok(second)) = (h.parse::<u8>(), m.parse::<u8>(), s.parse::<u8>()) {
+                            info!("Syncing STM32 time to {}:{}:{}", hour, minute, second);
+                            let cmd = shared_protocol::NetworkCommand::SyncTime { hour, minute, second };
+                            let mut send_buf = [0u8; 32];
+                            if let Ok(data) = postcard::to_slice(&cmd, &mut send_buf) { let _ = uart.write(data).await; }
+                        }
+                    }
+                }
 
                 let headers = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\n\r\n";
                 let _ = socket.write_all(headers.as_bytes()).await;
