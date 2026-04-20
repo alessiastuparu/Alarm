@@ -4,59 +4,66 @@
 use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_time::{Duration, Timer};
 use panic_probe as _;
 
-#[allow(dead_code)]
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum AlarmState {
-    Idle,            // Normal: shows clock mode, time, temperature
-    PreAlarm,        // 5 mins before: LED brightness increases
-    Ringing,         // MP3 playing, LEDs light up
-    Snoozed,         // Quiet: waits 5 min
-    TempAlert,       // Room hot: buzzer activates
+use embassy_stm32::usart::{Config, Uart};
+use embassy_stm32::bind_interrupts;
+use embassy_stm32::peripherals::{USART1, GPDMA1_CH0, GPDMA1_CH1};
+
+bind_interrupts!(struct Irqs{
+    USART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART1>;
+});
+
+#[embassy_executor::task]
+async fn uart_listener(mut uart: Uart<'static, USART1, GPDMA1_CH0, GPDMA1_CH1>){
+    let mut rx_buf = [0u8; 32];
+    info!("Stm32 listener started, waiting for Pico W commands");
+
+    loop{
+        match uart.read_until_idle(&mut rx_buf).await{
+            Ok(len) if len > 0 => {
+                if let Ok(cmd) = postcard::from_bytes::<shared_protocol::NetworkCommand>(&rx_buf[..len]) {
+                    match cmd{
+                        shared_protocol::NetworkCommand::SnoozeAlarm => {
+                            info!("Command received, Snooze starting");
+                            info!("Buzzer turning off");
+                        }
+                        _ => {
+                           info!("Received a different command. Not implemented yet."); 
+                        }
+                    }
+                }
+            } 
+            Ok(_) => {}
+            Err(_) => {
+                warn!("UART read error");
+            }
+        }
+    }
 }
 
 #[embassy_executor::main]
-async fn main(_spawner: Spawner) {
-    let _p = embassy_stm32::init(Default::default());
-    info!("Alarm OS Initialized");
+async fn main(spawner: Spawner){
+    let p = embassy_stm32::init(Default::default());
+    info!("Alarm OS initialized");
 
-    let mut current_state = AlarmState::Idle;
+    let mut uart_config = Config::default();
+    uart_config.baudrate = 115200;
 
-    loop {
-        match current_state {
-            AlarmState::Idle => {
-                info!("State: IDLE - Displaying Time");
+    let uart = Uart::new(
+        p.USART1,
+        p.PA10,
+        p.PA9,
+        Irqs,
+        p.GPDMA1_CH0,
+        p.GPDMA1_CH1,
+        uart_config
+    ).expect("UART configuration failed");
 
+    spawner.spawn(uart_listener(uart)).unwrap();
 
-
-
-                Timer::after(Duration::from_secs(3)).await;
-                current_state = AlarmState::PreAlarm;
-            }
-            AlarmState::PreAlarm => {
-                info!("State: PRE-ALARM - Starting LEDs");
-
-                Timer::after(Duration::from_secs(3)).await;
-                current_state = AlarmState::Ringing;
-            }
-            AlarmState::Ringing => {
-                info!("State: RINGING - Playing Audio");
-
-                Timer::after(Duration::from_secs(3)).await;
-                current_state = AlarmState::Idle; 
-            }
-            AlarmState::Snoozed => {
-                info!("State: SNOOZED - Waiting 5 Minutes");
-                Timer::after(Duration::from_secs(5)).await;
-                current_state = AlarmState::Ringing;
-            }
-            AlarmState::TempAlert => {
-                warn!("State: TEMP ALERT - Triggering Buzzer");
-                Timer::after(Duration::from_secs(2)).await;
-                current_state = AlarmState::Idle;
-            }
-        }
+    loop{
+        embassy_time::Timer::after(embassy_time::Duration::from_secs(5)).await;
+        info!("STM32 main loop running");
     }
 }

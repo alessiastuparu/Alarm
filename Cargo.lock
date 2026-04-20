@@ -1717,6 +1717,7 @@ dependencies = [
  "embedded-graphics",
  "heapless 0.8.0",
  "panic-probe",
+ "postcard",
  "shared-protocol",
  "smart-leds",
  "st7735-lcd",
