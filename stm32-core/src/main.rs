@@ -23,13 +23,18 @@ async fn uart_listener(mut uart: Uart<'static, USART1, GPDMA1_CH0, GPDMA1_CH1>){
         match uart.read_until_idle(&mut rx_buf).await{
             Ok(len) if len > 0 => {
                 if let Ok(cmd) = postcard::from_bytes::<shared_protocol::NetworkCommand>(&rx_buf[..len]) {
-                    match cmd{
+                    match cmd {
                         shared_protocol::NetworkCommand::SnoozeAlarm => {
-                            info!("Command received, Snooze starting");
-                            info!("Buzzer turning off");
+                            info!("Command: Snooze starting, Buzzer is pausing");
                         }
-                        _ => {
-                           info!("Received a different command. Not implemented yet."); 
+                        shared_protocol::NetworkCommand::DisableAlarm => {
+                            info!("Command: Alarm Disabled");
+                        }
+                        shared_protocol::NetworkCommand::SetAlarm { hour, minute } => {
+                            info!("Command: Alarm set for {:02}:{:02}", hour, minute);
+                        }
+                        shared_protocol::NetworkCommand::SyncTime { hour, minute, second } => {
+                            info!("Command: STM32 internal clock synced to {:02}:{:02}:{:02}", hour, minute, second);
                         }
                     }
                 }
