@@ -4,24 +4,20 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-# The Shared Library
 shared-protocol = { path = "../shared-protocol" }
 
-# Embassy Framework
 embassy-stm32 = { version = "0.1.0", features = ["defmt", "stm32u545re", "time-driver-any", "exti", "memory-x", "unstable-pac"] }
 embassy-executor = { version = "0.6.0", features = ["task-arena-size-32768", "arch-cortex-m", "executor-thread", "defmt"] }
 embassy-time = { version = "0.3.2", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-1_000_000"] }
 
-# Hardware Drivers
-st7735-lcd = "0.9.0"         # For the TFT Display
-embedded-graphics = "0.8.1"  # To draw shapes/text on the screen
-bme280-rs = "0.2.0"          # For the Temp/Humidity sensor
-smart-leds = "0.3.0"         # For the WS2812B Ring
-heapless = "0.8.0"           # Memory-safe arrays without a heap
+st7735-lcd = "0.9.0"
+embedded-graphics = "0.8.1"
+bme280-rs = "0.2.0"
+smart-leds = "0.3.0"
+heapless = "0.8.0"
 
-# Core Embedded Rust
-cortex-m = { version = "0.7.6", features = ["inline-asm"] }
+cortex-m = "0.7.7"
 cortex-m-rt = "0.7.3"
-defmt = "0.3.5"              # Super fast logging
+defmt = "0.3.5"
 defmt-rtt = "0.4.0"
 panic-probe = { version = "0.3.1", features = ["print-defmt"] }

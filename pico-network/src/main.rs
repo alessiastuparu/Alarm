@@ -49,6 +49,7 @@ const INDEX_HTML: &str = r#"
 
 bind_interrupts!(struct Irqs {
     PIO0_IRQ_0 => InterruptHandler<PIO0>;
+    UART0_IRQ => embassy_rp::uart::InterruptHandler<embassy_rp::peripherals::UART0>;
 });
 
 #[embassy_executor::task]
@@ -68,6 +69,9 @@ async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
     info!("Pico W Web Server initialized");
 
+    let uart_config = embassy_rp::uart::Config::default();
+    let mut uart = embassy_rp::uart::Uart::new(p.UART0, p.PIN_0, p.PIN_1, Irqs, p.DMA_CH1, p.DMA_CH2, uart_config);
+
     let pwr = Output::new(p.PIN_23, Level::Low);
     let cs = Output::new(p.PIN_25, Level::High);
     let mut pio = Pio::new(p.PIO0, Irqs);
@@ -75,11 +79,9 @@ async fn main(spawner: Spawner) {
 
     static STATE: StaticCell<cyw43::State> = StaticCell::new();
     let state = STATE.init(cyw43::State::new());
-    
     let (net_device, mut control, wifi_runner) = cyw43::new(state, pwr, spi, WIFI_FIRMWARE).await;
     spawner.spawn(wifi_task(wifi_runner)).unwrap();
 
-    info!("Starting Wi-Fi chip");
     control.init(WIFI_CLM).await;
     control.set_power_management(cyw43::PowerManagementMode::PowerSave).await;
 
@@ -88,28 +90,16 @@ async fn main(spawner: Spawner) {
     let resources = RESOURCES.init(StackResources::<2>::new());
     static STACK: StaticCell<Stack<cyw43::NetDriver<'static>>> = StaticCell::new();
     let stack = STACK.init(Stack::new(net_device, config, resources, 1234));
-    
     spawner.spawn(net_task(stack)).unwrap();
 
-    info!("Connecting to Wi-Fi network: {}...", WIFI_NETWORK);
+    info!("Connecting to Wi-Fi...");
     loop {
-        match control.join_wpa2(WIFI_NETWORK, WIFI_PASSWORD).await {
-            Ok(_) => break,
-            Err(err) => {
-                info!("Join failed with status={}. Retrying in 1 second...", err.status);
-                Timer::after(Duration::from_secs(1)).await;
-            }
-        }
-    }
-    info!("Authentication with Wi-Fi successful");
-
-    info!("Waiting for DHCP to assign an IP address");
-    while !stack.is_config_up() {
-        Timer::after(Duration::from_millis(100)).await;
+        if let Ok(_) = control.join_wpa2(WIFI_NETWORK, WIFI_PASSWORD).await { break; }
+        Timer::after(Duration::from_secs(1)).await;
     }
     
     let ip = stack.config_v4().unwrap().address.address();
-    info!("Network is working - Pico W IP Address: {}", ip);
+    info!("Pico W IP Address: {}", ip);
 
     let mut rx_buffer = [0; 1024];
     let mut tx_buffer = [0; 4096];
@@ -118,29 +108,28 @@ async fn main(spawner: Spawner) {
         let mut socket = embassy_net::tcp::TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
         socket.set_timeout(Some(Duration::from_secs(10)));
 
-        info!("Listening for web browsers on port 80");
-        
-        if let Err(e) = socket.accept(80).await {
-            warn!("Connection error: {:?}", e);
-            continue;
-        }
+        if let Ok(_) = socket.accept(80).await {
+            let mut buf = [0; 1024];
+            if let Ok(n) = socket.read(&mut buf).await {
+                let request = core::str::from_utf8(&buf[..n]).unwrap_or("");
 
-        info!("Browser connected from {:?}", socket.remote_endpoint());
+                if request.contains("GET /snooze") {
+    info!("Snooze pressed - Sending command to STM32");
+    
+    let cmd = shared_protocol::NetworkCommand::SnoozeAlarm;
+    
+    let mut send_buf = [0u8; 32];
+    if let Ok(data) = postcard::to_slice(&cmd, &mut send_buf) {
+        let _ = uart.write(data).await;
+    }
+}
 
-        let mut buf = [0; 1024];
-        if let Ok(n) = socket.read(&mut buf).await {
-            if n > 0 {
-                info!("Sending webpage");
                 let headers = "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\n\r\n";
-                
                 let _ = socket.write_all(headers.as_bytes()).await;
                 let _ = socket.write_all(INDEX_HTML.as_bytes()).await;
                 let _ = socket.flush().await;
             }
+            socket.close();
         }
-
-        socket.close();
-        info!("Connection closed. Ready for next visitor.");
-        Timer::after(Duration::from_millis(100)).await;
     }
 }
