@@ -2,24 +2,30 @@
 name = "pico-network"
 version = "0.1.0"
 edition = "2021"
+build = "build.rs"
 
 [dependencies]
 shared-protocol = { path = "../shared-protocol" }
-postcard = { version = "1.0", features = ["defmt"] } 
+postcard = { version = "1.0", features = ["defmt"] }
 
-embassy-rp = { version = "0.2.0", features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl"] }
-embassy-executor = { version = "0.6.0", features = ["task-arena-size-32768", "arch-cortex-m", "executor-thread", "defmt"] }
-embassy-time = { version = "0.3.2", features = ["defmt", "defmt-timestamp-uptime"] }
+embassy-rp       = { version = "0.9.0",  features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl", "rp235xa"] }
+embassy-executor = { version = "0.10.0", features = ["platform-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
+embassy-time     = { version = "0.5.1",  features = ["defmt", "defmt-timestamp-uptime"] }
+embassy-net      = { version = "0.9.0",  features = ["defmt", "tcp", "dhcpv4", "medium-ethernet"] }
+embassy-sync     = { version = "0.5.0",  features = ["defmt"] }
 
-embassy-net = { version = "0.4.0", features = ["defmt", "tcp", "dhcpv4", "medium-ethernet"] }
-cyw43 = { version = "0.2.0", features = ["defmt", "firmware-logs"] }
-cyw43-pio = { version = "0.2.0", features = ["defmt"] }
-static_cell = "2.1.0"
-portable-atomic = { version = "1.5", features = ["critical-section"] }
-embedded-io-async = "0.6.1"
+cyw43     = { version = "0.6.0", features = ["defmt", "firmware-logs"] }
+cyw43-pio = { version = "0.9.0", features = ["defmt"] }
 
-cortex-m = "0.7.7"
+static_cell      = "2.1.0"
+portable-atomic  = { version = "1.5", features = ["critical-section"] }
+embedded-io-async = "0.7.0"
+heapless          = "0.8.0"
+fixed    = "1.29.0"
+typenum  = "1.19.0"
+
+cortex-m    = "0.7.7"
 cortex-m-rt = "0.7.3"
-defmt = "0.3.5"
-defmt-rtt = "0.4.0"
+defmt       = "0.3.5"
+defmt-rtt   = "0.4.0"
 panic-probe = { version = "0.3.1", features = ["print-defmt"] }
