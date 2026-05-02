@@ -8,6 +8,8 @@ use embassy_time::{Duration, Timer};
 use panic_probe as _;
 
 use embassy_stm32::bind_interrupts;
+use embassy_stm32::exti::ExtiInput;
+use embassy_stm32::gpio::{Level, Output, Pull, Speed};
 use embassy_stm32::mode::Async;
 use embassy_stm32::usart::{Config, Uart, UartRx, UartTx};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -21,7 +23,7 @@ struct ClockState {
     alarm_minute: u8,
     alarm_enabled: bool,
     is_ringing: bool,
-    ringing_seconds: u32, 
+    ringing_seconds: u32,
 }
 
 static CLOCK_STATE: Mutex<CriticalSectionRawMutex, ClockState> = Mutex::new(ClockState {
@@ -35,13 +37,13 @@ static CLOCK_STATE: Mutex<CriticalSectionRawMutex, ClockState> = Mutex::new(Cloc
     ringing_seconds: 0,
 });
 
-
 bind_interrupts!(struct Irqs {
     USART1          => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART1>;
     GPDMA1_CHANNEL0 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::GPDMA1_CH0>;
     GPDMA1_CHANNEL1 => embassy_stm32::dma::InterruptHandler<embassy_stm32::peripherals::GPDMA1_CH1>;
+    EXTI8           => embassy_stm32::exti::InterruptHandler<embassy_stm32::interrupt::typelevel::EXTI8>;
+    EXTI5           => embassy_stm32::exti::InterruptHandler<embassy_stm32::interrupt::typelevel::EXTI5>;
 });
-
 
 #[embassy_executor::task]
 async fn clock_ticker() {
@@ -99,6 +101,73 @@ async fn clock_ticker() {
     }
 }
 
+#[embassy_executor::task]
+async fn buzzer_driver(mut buzzer_pin: Output<'static>) {
+    info!("Buzzer driver started.");
+    loop {
+        let ringing = {
+            let state = CLOCK_STATE.lock().await;
+            state.is_ringing
+        };
+
+        if ringing {
+            buzzer_pin.set_high();
+            Timer::after(Duration::from_millis(500)).await;
+            buzzer_pin.set_low();
+            Timer::after(Duration::from_millis(500)).await;
+        } else {
+            buzzer_pin.set_low();
+            Timer::after(Duration::from_millis(100)).await;
+        }
+    }
+}
+
+#[embassy_executor::task]
+async fn button_snooze(mut button: ExtiInput<'static, Async>) {
+    info!("Snooze button task started.");
+    loop {
+        button.wait_for_falling_edge().await;
+
+        Timer::after(Duration::from_millis(500)).await;
+
+        let mut state = CLOCK_STATE.lock().await;
+        if state.is_ringing {
+            state.is_ringing = false;
+            state.ringing_seconds = 0;
+            let total_minutes = state.alarm_minute as u16 + 5;
+            state.alarm_minute = (total_minutes % 60) as u8;
+            if total_minutes >= 60 {
+                state.alarm_hour = (state.alarm_hour + 1) % 24;
+            }
+            info!(
+                "Physical snooze! Next ring at {:02}:{:02}",
+                state.alarm_hour, state.alarm_minute
+            );
+        } else {
+            info!("Snooze button pressed but alarm is not ringing — ignored.");
+        }
+    }
+}
+
+#[embassy_executor::task]
+async fn button_cancel(mut button: ExtiInput<'static, Async>) {
+    info!("Cancel button task started.");
+    loop {
+        button.wait_for_falling_edge().await;
+
+        Timer::after(Duration::from_millis(500)).await;
+
+        let mut state = CLOCK_STATE.lock().await;
+        if state.is_ringing || state.alarm_enabled {
+            state.alarm_enabled = false;
+            state.is_ringing = false;
+            state.ringing_seconds = 0;
+            info!("Physical cancel! Alarm fully disabled.");
+        } else {
+            info!("Cancel button pressed but no alarm is active — ignored.");
+        }
+    }
+}
 
 #[embassy_executor::task]
 async fn uart_listener(mut uart_rx: UartRx<'static, Async>) {
@@ -136,25 +205,25 @@ async fn uart_listener(mut uart_rx: UartRx<'static, Async>) {
                                         state.alarm_hour = (state.alarm_hour + 1) % 24;
                                     }
                                     info!(
-                                        "Snoozed! Next ring at {:02}:{:02}",
+                                        "Web snooze! Next ring at {:02}:{:02}",
                                         state.alarm_hour, state.alarm_minute
                                     );
                                 } else {
-                                    info!("Snooze ignored — alarm is not ringing.");
+                                    info!("Web snooze ignored — alarm not ringing.");
                                 }
                             }
                             shared_protocol::NetworkCommand::DisableAlarm => {
                                 state.alarm_enabled = false;
                                 state.is_ringing = false;
                                 state.ringing_seconds = 0;
-                                info!("Alarm disabled.");
+                                info!("Web disable! Alarm disabled.");
                             }
                         }
                     }
                     Err(_) => warn!("Received unrecognised bytes from Pico — ignored."),
                 }
             }
-            Ok(_) => {} 
+            Ok(_) => {}
             Err(_) => warn!("UART RX error."),
         }
     }
@@ -201,7 +270,6 @@ async fn telemetry_sender(mut uart_tx: UartTx<'static, Async>) {
     }
 }
 
-
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
@@ -214,8 +282,8 @@ async fn main(spawner: Spawner) {
         p.USART1,
         p.PA10,         
         p.PA9,          
-        p.GPDMA1_CH0,   
-        p.GPDMA1_CH1,   
+        p.GPDMA1_CH0,
+        p.GPDMA1_CH1,
         Irqs,
         uart_config,
     )
@@ -223,9 +291,17 @@ async fn main(spawner: Spawner) {
 
     let (uart_tx, uart_rx) = uart.split();
 
+    let buzzer = Output::new(p.PB0, Level::Low, Speed::Low);
+
+    let snooze_btn = ExtiInput::new(p.PA8, p.EXTI8, Pull::Up, Irqs);
+    let cancel_btn = ExtiInput::new(p.PB5, p.EXTI5, Pull::Up, Irqs);
+
+    spawner.spawn(clock_ticker().unwrap());
+    spawner.spawn(buzzer_driver(buzzer).unwrap());
+    spawner.spawn(button_snooze(snooze_btn).unwrap());
+    spawner.spawn(button_cancel(cancel_btn).unwrap());
     spawner.spawn(uart_listener(uart_rx).unwrap());
     spawner.spawn(telemetry_sender(uart_tx).unwrap());
-    spawner.spawn(clock_ticker().unwrap());
 
     loop {
         Timer::after(Duration::from_secs(60)).await;
