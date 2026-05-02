@@ -8,7 +8,7 @@ build = "build.rs"
 shared-protocol = { path = "../shared-protocol" }
 postcard = { version = "1.0", features = ["defmt"] }
 
-embassy-stm32 = { version = "0.6.0", features = ["defmt", "stm32u545re", "time-driver-any", "exti", "memory-x", "unstable-pac"] }
+embassy-stm32    = { version = "0.6.0", features = ["defmt", "stm32u545re", "time-driver-any", "exti", "memory-x", "unstable-pac"] }
 embassy-executor = { version = "0.10.0", features = ["platform-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
 embassy-time     = { version = "0.5.1",  features = ["defmt", "defmt-timestamp-uptime", "tick-hz-1_000_000"] }
 embassy-sync     = { version = "0.5.0" }
