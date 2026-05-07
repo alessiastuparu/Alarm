@@ -1,8 +1,13 @@
-[target.thumbv6m-none-eabi]
-runner = "probe-rs run --chip RP2040"
+[target.thumbv8m.main-none-eabihf]
+runner = "elf2flash deploy --board rp2350"
+rustflags = [
+    "-C", "link-arg=-Tlink.x",
+    "-C", "link-arg=-Tdefmt.x",
+    "-C", "link-arg=--nmagic",
+]
 
 [build]
-target = "thumbv6m-none-eabi"
+target = "thumbv8m.main-none-eabihf"
 
 [env]
 DEFMT_LOG = "trace"
